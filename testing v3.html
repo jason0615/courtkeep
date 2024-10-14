@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timetable</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .court-group {
+            background-color: #e7f3fe;
+            font-weight: bold;
+        }
+        .available {
+            background-color: #d4edda; /* Green */
+        }
+        .not-available {
+            background-color: #f8d7da; /* Red */
+        }
+        .other-status {
+            background-color: #fff3cd; /* Yellow */
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Timetable</h1>
+<label>
+    <input type="checkbox" id="toggleAvailable"> Show Available Only
+</label>
+<div id="timetable"></div>
+
+<script>
+var globalObject = {
+    connectionDB: 'https://appsys.dbkl.gov.my/mytempahan_baru/gateway.asp'
+};
+var act = "gettimetable";
+var idsport = '1'; // Sport ID
+var idlocation = '59'; // Default location ID
+
+// Fetch timetable data for a specific date
+async function fetchTimetable(date) {
+    const formattedDate = date.toLocaleDateString('en-US'); // Format to MM/dd/yyyy
+    try {
+        const response = await $.getJSON(globalObject.connectionDB + '?callback=?', {
+            actiontype: act,
+            dateplay: formattedDate,
+            actvid: idsport,
+            locid: idlocation
+        });
+        console.log("Data received for", formattedDate, response);
+        populateTable(response.datamasa, formattedDate);
+    } catch (error) {
+        console.error("Request Failed for", formattedDate, error);
+    }
+}
+
+// Populate the table with the data
+function populateTable(data, date) {
+    const filteredData = data.filter(item => 
+        item.TIMEPLAYTABLE === "6.00PM-8.00PM" || item.TIMEPLAYTABLE === "8.00PM-10.00PM"
+    );
+
+    if (filteredData.length === 0) {
+        $('#timetable').append(`<p>No available records for ${date}.</p>`);
+        return;
+    }
+
+    // Group data by NAMECOURT
+    const groupedData = filteredData.reduce((acc, item) => {
+        (acc[item.NAMECOURT] = acc[item.NAMECOURT] || []).push(item);
+        return acc;
+    }, {});
+
+    let tableHTML = `<h3>Date: ${date}</h3><table><thead><tr><th>Time</th><th>Location</th><th>Status</th></tr></thead><tbody>`;
+
+    // Create table rows for each group
+    for (const court in groupedData) {
+        // Add group header
+        tableHTML += `<tr class="court-group"><td colspan="3">${court}</td></tr>`;
+        groupedData[court].forEach(item => {
+            let statusText = 'UNKNOWN STATUS'; // Default value
+            let rowClass = 'other-status'; // Default class
+            
+            // Determine status and row class based on conditions
+            if (item.PAIDSTATUS == 2 && item.STATUS == 3) {
+                statusText = 'PAID';
+                rowClass = 'other-status'; // Yellow
+            } else if (item.PAIDSTATUS == 1 && item.STATUS == 0) {
+                statusText = 'NOT AVAILABLE';
+                rowClass = 'not-available'; // Red
+            } else if (item.PAIDSTATUS == 70 && item.STATUS == 70) {
+                statusText = 'NOT AVAILABLE';
+                rowClass = 'not-available'; // Red
+            } else if (item.PAIDSTATUS == 3 && item.STATUS == 4) {
+                statusText = 'DEPOSIT';
+                rowClass = 'other-status'; // Yellow
+            } else if (item.PAIDSTATUS == 2 && item.STATUS == 2) {
+                statusText = 'PENDING PAYMENT';
+                rowClass = 'other-status'; // Yellow
+            } else if (item.PAIDSTATUS == 1 && item.STATUS == 1) {
+                statusText = 'BOOKING';
+                rowClass = 'other-status'; // Yellow
+            } else if (
+                item.PAIDSTATUS == null || 
+                item.PAIDSTATUS == 69 || 
+                item.PAIDSTATUS === '' &&
+                (item.STATUS == null || 
+                item.STATUS == 69 || 
+                item.STATUS === '')
+            ) {
+                statusText = 'AVAILABLE';
+                rowClass = 'available'; // Green
+            }
+
+            // Create a new row for the timetable
+            tableHTML += `<tr class="${rowClass}">
+                <td>${item.TIMEPLAYTABLE}</td>
+                <td>${item.NAMELOCATION}</td>
+                <td>${statusText}</td>
+            </tr>`;
+        });
+    }
+
+    tableHTML += '</tbody></table>';
+    $('#timetable').append(tableHTML);
+}
+
+// Toggle visibility of rows based on the checkbox
+$('#toggleAvailable').on('change', function() {
+    if ($(this).is(':checked')) {
+        $('#timetable tr').each(function() {
+            if (!$(this).hasClass('available') && !$(this).hasClass('court-group')) {
+                $(this).addClass('hidden');
+            } else {
+                $(this).removeClass('hidden');
+            }
+        });
+    } else {
+        $('#timetable tr').removeClass('hidden'); // Show all rows
+    }
+});
+
+// Call the fetch function for each day from tomorrow to 21 days later
+$(document).ready(async function() {
+    const today = new Date();
+    for (let i = 1; i <= 21; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        await fetchTimetable(date); // Await the fetch call
+    }
+});
+</script>
+
+</body>
+</html>
